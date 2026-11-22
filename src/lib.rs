@@ -12100,6 +12100,24 @@ mod tests {
     );
     minify_test(".foo { transition: width 2s 1s }", ".foo{transition:width 2s 1s}");
     minify_test(".foo { transition: width 2s ease 1s }", ".foo{transition:width 2s 1s}");
+    minify_test(".foo { transition: width 1s, width 2s }", ".foo{transition:width 2s}");
+    minify_test(
+      ".foo { transition: width 1s ease, width 2s linear }",
+      ".foo{transition:width 2s linear}",
+    );
+    minify_test(".foo { transition: 1s, 2s }", ".foo{transition:all 2s}");
+    minify_test(
+      ".foo { transition: opacity 1s, width 2s, opacity 3s }",
+      ".foo{transition:width 2s,opacity 3s}",
+    );
+    minify_test(
+      ".foo { transition: -webkit-border-radius 1s, -moz-border-radius 2s }",
+      ".foo{transition:-webkit-border-radius 1s,-moz-border-radius 2s}",
+    );
+    minify_test(
+      ".foo { transition: all 1s, width 2s, all 3s }",
+      ".foo{transition:width 2s,all 3s}",
+    );
     minify_test(
       ".foo { transition: ease-in 1s width 4s }",
       ".foo{transition:width 1s ease-in 4s}",
@@ -12176,6 +12194,34 @@ mod tests {
       indoc! {r#"
       .foo {
         transition: opacity 2s ease-in-out .5s, color 4s ease-in;
+      }
+    "#},
+    );
+    test(
+      r#"
+      .foo {
+        transition-property: all, all;
+        transition-duration: 1s, 2s;
+      }
+    "#,
+      indoc! {r#"
+      .foo {
+        transition-property: all;
+        transition-duration: 2s;
+      }
+    "#},
+    );
+    test(
+      r#"
+      .foo {
+        transition-property: opacity, width, opacity;
+        transition-duration: 1s, 2s, 3s;
+      }
+    "#,
+      indoc! {r#"
+      .foo {
+        transition-property: width, opacity;
+        transition-duration: 2s, 3s;
       }
     "#},
     );

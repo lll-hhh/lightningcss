@@ -204,14 +204,13 @@ impl<'i> PropertyHandler<'i> for TransitionHandler<'i> {
 
     match property {
       TransitionProperty(val, vp) => {
-        let merged_values = merge_properties(val.iter());
-        property!(TransitionProperty, properties, &merged_values, vp);
+        property!(TransitionProperty, properties, val, vp);
       }
       TransitionDuration(val, vp) => property!(TransitionDuration, durations, val, vp),
       TransitionDelay(val, vp) => property!(TransitionDelay, delays, val, vp),
       TransitionTimingFunction(val, vp) => property!(TransitionTimingFunction, timing_functions, val, vp),
       Transition(val, vp) => {
-        let properties: SmallVec<[PropertyId; 1]> = merge_properties(val.iter().map(|b| &b.property));
+        let properties: SmallVec<[PropertyId; 1]> = val.iter().map(|b| b.property.clone()).collect();
         maybe_flush!(properties, &properties, vp);
 
         let durations: SmallVec<[NonNegative<Time>; 1]> = val.iter().map(|b| b.duration.clone()).collect();
@@ -264,6 +263,10 @@ impl<'i> TransitionHandler<'i> {
     } else {
       None
     };
+
+    if rtl_properties.is_none() {
+      merge_transition_lists(&mut properties, &mut durations, &mut delays, &mut timing_functions);
+    }
 
     if let (
       Some((properties, property_prefixes)),
@@ -380,21 +383,108 @@ fn is_transition_property(property_id: &PropertyId) -> bool {
   }
 }
 
-fn merge_properties<'i: 'a, 'a>(val: impl Iterator<Item = &'a PropertyId<'i>>) -> SmallVec<[PropertyId<'i>; 1]> {
-  let mut merged_values = SmallVec::<[PropertyId<'_>; 1]>::with_capacity(val.size_hint().1.unwrap_or(1));
-  for p in val {
-    let without_prefix = p.with_prefix(VendorPrefix::empty());
-    if let Some(idx) = merged_values
+fn merge_transitions<'i: 'a, 'a>(val: impl Iterator<Item = &'a Transition<'i>>) -> SmallVec<[Transition<'i>; 1]> {
+  // The last occurrence of a property supplies its transition values. Keep
+  // that occurrence at its original position because an `all` entry can
+  // override an earlier property-specific entry.
+  let mut unique = SmallVec::<[Transition<'_>; 1]>::new();
+  for transition in val {
+    if let Some(idx) = unique.iter().position(|t| t.property == transition.property) {
+      unique.remove(idx);
+    }
+    unique.push(transition.clone());
+  }
+
+  let mut merged = SmallVec::<[Transition<'_>; 1]>::new();
+  for (i, transition) in unique.iter().enumerate() {
+    let without_prefix = transition.property.with_prefix(VendorPrefix::empty());
+    let compatible = unique.iter().all(|other| {
+      other.property.with_prefix(VendorPrefix::empty()) != without_prefix
+        || (other.duration == transition.duration
+          && other.delay == transition.delay
+          && other.timing_function == transition.timing_function)
+    });
+    let last = unique
       .iter()
-      .position(|c| c.with_prefix(VendorPrefix::empty()) == without_prefix)
-    {
-      merged_values[idx].add_prefix(p.prefix());
-    } else {
-      merged_values.push(p.clone());
+      .rposition(|other| other.property.with_prefix(VendorPrefix::empty()) == without_prefix)
+      .unwrap();
+
+    if !compatible {
+      merged.push(transition.clone());
+    } else if i == last {
+      let prefixes = unique.iter().fold(VendorPrefix::empty(), |prefixes, other| {
+        if other.property.with_prefix(VendorPrefix::empty()) == without_prefix {
+          prefixes | other.property.prefix()
+        } else {
+          prefixes
+        }
+      });
+      let mut transition = transition.clone();
+      transition.property = transition.property.with_prefix(prefixes);
+      merged.push(transition);
     }
   }
 
-  merged_values
+  merged
+}
+
+fn merge_transition_lists<'i>(
+  properties: &mut Option<(SmallVec<[PropertyId<'i>; 1]>, VendorPrefix)>,
+  durations: &mut Option<(SmallVec<[NonNegative<Time>; 1]>, VendorPrefix)>,
+  delays: &mut Option<(SmallVec<[Time; 1]>, VendorPrefix)>,
+  timing_functions: &mut Option<(SmallVec<[EasingFunction; 1]>, VendorPrefix)>,
+) {
+  let Some((property_values, _)) = properties.as_ref() else {
+    return;
+  };
+
+  // Defer this merge until every longhand is available so duplicate properties
+  // can be paired with the corresponding duration, delay, and easing values.
+  // A component list can be shorter than transition-property and is repeated
+  // when pairing values. Keep that list untouched unless every list aligns
+  // one-to-one, otherwise merging could make vendor-specific fallbacks longer.
+  if durations
+    .as_ref()
+    .is_some_and(|(values, _)| values.len() != property_values.len())
+    || delays.as_ref().is_some_and(|(values, _)| values.len() != property_values.len())
+    || timing_functions
+      .as_ref()
+      .is_some_and(|(values, _)| values.len() != property_values.len())
+  {
+    return;
+  }
+
+  let transitions: SmallVec<[Transition; 1]> = property_values
+    .iter()
+    .enumerate()
+    .map(|(i, property)| Transition {
+      property: property.clone(),
+      duration: durations
+        .as_ref()
+        .map(|(values, _)| values[i].clone())
+        .unwrap_or(NonNegative(Time::Seconds(0.0))),
+      delay: delays
+        .as_ref()
+        .map(|(values, _)| values[i].clone())
+        .unwrap_or(Time::Seconds(0.0)),
+      timing_function: timing_functions
+        .as_ref()
+        .map(|(values, _)| values[i].clone())
+        .unwrap_or(EasingFunction::Ease),
+    })
+    .collect();
+  let merged = merge_transitions(transitions.iter());
+
+  properties.as_mut().unwrap().0 = merged.iter().map(|t| t.property.clone()).collect();
+  if let Some((values, _)) = durations {
+    *values = merged.iter().map(|t| t.duration.clone()).collect();
+  }
+  if let Some((values, _)) = delays {
+    *values = merged.iter().map(|t| t.delay.clone()).collect();
+  }
+  if let Some((values, _)) = timing_functions {
+    *values = merged.iter().map(|t| t.timing_function.clone()).collect();
+  }
 }
 
 fn expand_properties<'i>(
