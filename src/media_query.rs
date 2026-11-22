@@ -941,13 +941,13 @@ impl MediaFeatureComparison {
     }
   }
 
-  fn negate(&self) -> MediaFeatureComparison {
+  fn negate(&self) -> Option<MediaFeatureComparison> {
     match self {
-      MediaFeatureComparison::GreaterThan => MediaFeatureComparison::LessThanEqual,
-      MediaFeatureComparison::GreaterThanEqual => MediaFeatureComparison::LessThan,
-      MediaFeatureComparison::LessThan => MediaFeatureComparison::GreaterThanEqual,
-      MediaFeatureComparison::LessThanEqual => MediaFeatureComparison::GreaterThan,
-      MediaFeatureComparison::Equal => MediaFeatureComparison::Equal,
+      MediaFeatureComparison::GreaterThan => Some(MediaFeatureComparison::LessThanEqual),
+      MediaFeatureComparison::GreaterThanEqual => Some(MediaFeatureComparison::LessThan),
+      MediaFeatureComparison::LessThan => Some(MediaFeatureComparison::GreaterThanEqual),
+      MediaFeatureComparison::LessThanEqual => Some(MediaFeatureComparison::GreaterThan),
+      MediaFeatureComparison::Equal => None,
     }
   }
 }
@@ -1162,7 +1162,7 @@ where
     match self {
       QueryFeature::Range { name, operator, value } => Some(QueryFeature::Range {
         name: (*name).clone(),
-        operator: operator.negate(),
+        operator: operator.negate()?,
         value: value.clone(),
       }),
       _ => None,
@@ -1962,6 +1962,40 @@ mod tests {
     assert_eq!(
       media_query.to_css_string(printer_options).unwrap(),
       "screen and not ((min-width: 200px) and (not (min-width: 500px)))"
+    );
+  }
+
+  #[test]
+  fn test_negated_equal_range_preserves_not() {
+    assert_eq!(
+      parse("not (width = 10px)").to_css_string(PrinterOptions::default()).unwrap(),
+      "not (width = 10px)"
+    );
+    assert_eq!(
+      parse("not (resolution = 2dppx)")
+        .to_css_string(PrinterOptions::default())
+        .unwrap(),
+      "not (resolution = 2x)"
+    );
+    assert_eq!(
+      parse("not (color = 8)").to_css_string(PrinterOptions::default()).unwrap(),
+      "not (color = 8)"
+    );
+    assert_eq!(
+      parse("screen and not (width = 10px)")
+        .to_css_string(PrinterOptions::default())
+        .unwrap(),
+      "screen and not (width = 10px)"
+    );
+    assert_eq!(
+      parse("(not (width = 10px)) and (height > 5px)")
+        .to_css_string(PrinterOptions::default())
+        .unwrap(),
+      "(not (width = 10px)) and (height > 5px)"
+    );
+    assert_eq!(
+      parse("not (width >= 10px)").to_css_string(PrinterOptions::default()).unwrap(),
+      "(width < 10px)"
     );
   }
 }
