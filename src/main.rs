@@ -256,9 +256,9 @@ pub fn main() -> Result<(), std::io::Error> {
           let map_filename = output_file.to_string_lossy() + ".map";
           let source_map_url = output_file
             .file_name()
-            .expect("output file must have a file name")
-            .to_string_lossy();
-          code += &format!("\n/*# sourceMappingURL={}.map */\n", source_map_url);
+            .map(|name| format!("{}.map", name.to_string_lossy()))
+            .unwrap_or_else(|| map_filename.to_string());
+          code += &format!("\n/*# sourceMappingURL={source_map_url} */\n");
           fs::write(map_filename.as_ref(), map_buf)?;
         }
       }
