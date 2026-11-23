@@ -254,7 +254,11 @@ pub fn main() -> Result<(), std::io::Error> {
       if cli_args.sourcemap {
         if let Some(map_buf) = map {
           let map_filename = output_file.to_string_lossy() + ".map";
-          code += &format!("\n/*# sourceMappingURL={} */\n", map_filename);
+          let source_map_url = output_file
+            .file_name()
+            .expect("output file must have a file name")
+            .to_string_lossy();
+          code += &format!("\n/*# sourceMappingURL={}.map */\n", source_map_url);
           fs::write(map_filename.as_ref(), map_buf)?;
         }
       }

@@ -434,10 +434,7 @@ fn sourcemap() -> Result<(), Box<dyn std::error::Error>> {
   cmd.arg("--sourcemap");
   cmd.assert().success();
 
-  outfile.assert(predicate::str::contains(&format!(
-    "/*# sourceMappingURL={}.map */",
-    outfile.path().to_str().unwrap()
-  )));
+  outfile.assert(predicate::str::contains("/*# sourceMappingURL=out.css.map */"));
   let mapfile = outdir.child("out.css.map");
   mapfile.assert(predicate::str::contains(r#""version":3"#));
   mapfile.assert(predicate::str::contains(r#""sources":["test.css"]"#));
